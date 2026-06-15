@@ -1,40 +1,34 @@
 using System;
-using System.Data.Entity;
+using System.Data;
+using System.Data.SqlClient;
 using System.Drawing;
-using System.Linq;
 using System.Windows.Forms;
 
 namespace ShoeStoreApp
 {
-    // ==================== МОДЕЛЬ ТОВАРА ====================
-    public class Product
+    static class DB
     {
-        public int Id { get; set; }
-        public string Name { get; set; }
-        public decimal Price { get; set; }
-        public int Quantity { get; set; }
-        public decimal Discount { get; set; }
-        public string Supplier { get; set; }
-    }
+        public static string ConnectionString = @"Server=(localdb)\MSSQLLocalDB;Database=ShoeStoreDB;Trusted_Connection=True;";
 
-    // ==================== ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ (EF) ====================
-    public class ShoeStoreContext : DbContext
-    {
-        public DbSet<Product> Products { get; set; }
-
-        public ShoeStoreContext() : base("Server=(localdb)\\MSSQLLocalDB;Database=ShoeStoreDB;Trusted_Connection=True;")
+        public static DataTable Query(string sql)
         {
+            DataTable dt = new DataTable();
+            using (SqlConnection conn = new SqlConnection(ConnectionString))
+            {
+                conn.Open();
+                SqlDataAdapter da = new SqlDataAdapter(sql, conn);
+                da.Fill(dt);
+            }
+            return dt;
         }
     }
 
-    // ==================== ТЕКУЩИЙ ПОЛЬЗОВАТЕЛЬ ====================
     static class User
     {
         public static string Role { get; set; }
         public static string Name { get; set; }
     }
 
-    // ==================== ОКНО ВХОДА ====================
     public class LoginForm : Form
     {
         private TextBox txtLogin;
@@ -69,12 +63,13 @@ namespace ShoeStoreApp
 
         private void BtnLogin_Click(object sender, EventArgs e)
         {
-            // Здесь нужно подключиться к таблице Users через EF
-            // Для простоты пока оставим прямую проверку
-            if (txtLogin.Text == "admin" && txtPassword.Text == "admin")
+            string sql = $"SELECT Role, FullName FROM Users WHERE Login='{txtLogin.Text}' AND Password='{txtPassword.Text}'";
+            DataTable dt = DB.Query(sql);
+
+            if (dt.Rows.Count > 0)
             {
-                User.Role = "Администратор";
-                User.Name = "Админ";
+                User.Role = dt.Rows[0]["Role"].ToString();
+                User.Name = dt.Rows[0]["FullName"].ToString();
                 MainForm main = new MainForm();
                 main.Show();
                 this.Hide();
@@ -95,15 +90,14 @@ namespace ShoeStoreApp
         }
     }
 
-    // ==================== ГЛАВНОЕ ОКНО ====================
     public class MainForm : Form
     {
+        private DataTable allProducts;
         private DataGridView dgv;
         private TextBox txtSearch;
         private ComboBox cbSupplier;
         private Button btnSortAsc, btnSortDesc;
         private bool sortAsc = false, sortDesc = false;
-        private System.Collections.Generic.List<Product> allProducts;
 
         public MainForm()
         {
@@ -142,17 +136,16 @@ namespace ShoeStoreApp
 
         private void LoadData()
         {
-            using (var context = new ShoeStoreContext())
-            {
-                allProducts = context.Products.ToList();
-            }
+            allProducts = DB.Query("SELECT * FROM Products");
 
-            // Загружаем поставщиков
-            var suppliers = allProducts.Select(p => p.Supplier).Where(s => !string.IsNullOrEmpty(s)).Distinct().ToList();
+            DataTable suppliers = DB.Query("SELECT DISTINCT Supplier FROM Products WHERE Supplier IS NOT NULL");
             cbSupplier.Items.Clear();
             cbSupplier.Items.Add("Все");
-            foreach (var sup in suppliers)
-                cbSupplier.Items.Add(sup);
+            foreach (DataRow row in suppliers.Rows)
+            {
+                string sup = row["Supplier"].ToString();
+                if (!string.IsNullOrEmpty(sup)) cbSupplier.Items.Add(sup);
+            }
             cbSupplier.SelectedIndex = 0;
 
             ApplyFilter();
@@ -160,46 +153,37 @@ namespace ShoeStoreApp
 
         private void ApplyFilter()
         {
-            var filtered = allProducts.AsEnumerable();
+            string filter = "";
 
-            // Поиск
             if (!string.IsNullOrEmpty(txtSearch.Text))
             {
-                filtered = filtered.Where(p => p.Name.ToLower().Contains(txtSearch.Text.ToLower()));
+                filter = $"Name LIKE '%{txtSearch.Text}%'";
             }
 
-            // Фильтр по поставщику
             if (cbSupplier.SelectedIndex > 0 && cbSupplier.Text != "Все")
             {
-                filtered = filtered.Where(p => p.Supplier == cbSupplier.Text);
+                if (!string.IsNullOrEmpty(filter)) filter += " AND ";
+                filter += $"Supplier = '{cbSupplier.Text}'";
             }
 
-            // Сортировка
-            if (sortAsc)
-                filtered = filtered.OrderBy(p => p.Quantity);
-            else if (sortDesc)
-                filtered = filtered.OrderByDescending(p => p.Quantity);
+            DataView dv = allProducts.DefaultView;
+            dv.RowFilter = filter;
 
-            // Привязываем к DataGridView
-            dgv.DataSource = null;
-            dgv.DataSource = filtered.ToList();
+            if (sortAsc) dv.Sort = "Quantity ASC";
+            else if (sortDesc) dv.Sort = "Quantity DESC";
 
-            // Подсветка строк
+            dgv.DataSource = dv;
+
             foreach (DataGridViewRow row in dgv.Rows)
             {
-                var product = row.DataBoundItem as Product;
-                if (product != null)
-                {
-                    if (product.Quantity == 0)
-                        row.DefaultCellStyle.BackColor = Color.LightBlue;
-                    if (product.Discount > 15)
-                        row.DefaultCellStyle.BackColor = Color.LightGreen;
-                }
+                if (row.Cells["Quantity"].Value != null && Convert.ToInt32(row.Cells["Quantity"].Value) == 0)
+                    row.DefaultCellStyle.BackColor = Color.LightBlue;
+                if (row.Cells["Discount"].Value != null && Convert.ToDecimal(row.Cells["Discount"].Value) > 15)
+                    row.DefaultCellStyle.BackColor = Color.LightGreen;
             }
         }
     }
 
-    // ==================== ЗАПУСК ПРОГРАММЫ ====================
     static class Program
     {
         [STAThread]
