@@ -1,0 +1,130 @@
+    // ==================== ФОРМА ДОБАВЛЕНИЯ/РЕДАКТИРОВАНИЯ (3 МОДУЛЬ) ====================
+    public class AddEditForm : Form
+    {
+        private TextBox txtName, txtPrice, txtDescription, txtSupplier;
+        private NumericUpDown numQuantity, numDiscount;
+        private Button btnSave, btnCancel;
+        private bool isEdit;
+        private int productId;
+
+        public AddEditForm(bool edit, int id)
+        {
+            isEdit = edit;
+            productId = id;
+            this.Text = edit ? "Редактировать товар" : "Добавить товар";
+            this.Size = new Size(420, 450);
+            this.StartPosition = FormStartPosition.CenterScreen;
+
+            int y = 20;
+            int step = 35;
+
+            Label lblName = new Label() { Text = "Название:", Left = 20, Top = y, Width = 100 };
+            txtName = new TextBox() { Left = 130, Top = y, Width = 230 };
+            this.Controls.Add(lblName);
+            this.Controls.Add(txtName);
+            y += step;
+
+            Label lblPrice = new Label() { Text = "Цена:", Left = 20, Top = y, Width = 100 };
+            txtPrice = new TextBox() { Left = 130, Top = y, Width = 150 };
+            this.Controls.Add(lblPrice);
+            this.Controls.Add(txtPrice);
+            y += step;
+
+            Label lblQuantity = new Label() { Text = "Количество:", Left = 20, Top = y, Width = 100 };
+            numQuantity = new NumericUpDown() { Left = 130, Top = y, Width = 150, Minimum = 0, Maximum = 99999 };
+            this.Controls.Add(lblQuantity);
+            this.Controls.Add(numQuantity);
+            y += step;
+
+            Label lblDiscount = new Label() { Text = "Скидка %:", Left = 20, Top = y, Width = 100 };
+            numDiscount = new NumericUpDown() { Left = 130, Top = y, Width = 150, Minimum = 0, Maximum = 100 };
+            this.Controls.Add(lblDiscount);
+            this.Controls.Add(numDiscount);
+            y += step;
+
+            Label lblSupplier = new Label() { Text = "Поставщик:", Left = 20, Top = y, Width = 100 };
+            txtSupplier = new TextBox() { Left = 130, Top = y, Width = 230 };
+            this.Controls.Add(lblSupplier);
+            this.Controls.Add(txtSupplier);
+            y += step;
+
+            Label lblDescription = new Label() { Text = "Описание:", Left = 20, Top = y, Width = 100 };
+            txtDescription = new TextBox() { Left = 130, Top = y, Width = 230, Height = 60, Multiline = true };
+            this.Controls.Add(lblDescription);
+            this.Controls.Add(txtDescription);
+            y += 80;
+
+            btnSave = new Button() { Text = "Сохранить", Left = 80, Top = y, Width = 110 };
+            btnCancel = new Button() { Text = "Отмена", Left = 210, Top = y, Width = 110 };
+            btnSave.Click += BtnSave_Click;
+            btnCancel.Click += (s, e) => this.Close();
+            this.Controls.Add(btnSave);
+            this.Controls.Add(btnCancel);
+
+            if (isEdit) LoadProductData();
+        }
+
+        private void LoadProductData()
+        {
+            using (var context = new ShoeStoreContext())
+            {
+                var product = context.Products.FirstOrDefault(p => p.Id == productId);
+                if (product != null)
+                {
+                    txtName.Text = product.Name;
+                    txtPrice.Text = product.Price.ToString();
+                    numQuantity.Value = product.Quantity;
+                    numDiscount.Value = product.Discount;
+                    txtSupplier.Text = product.Supplier;
+                    txtDescription.Text = product.Description;
+                }
+            }
+        }
+
+        private void BtnSave_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtName.Text))
+            {
+                MessageBox.Show("Введите название товара!");
+                return;
+            }
+            if (!decimal.TryParse(txtPrice.Text, out decimal price) || price < 0)
+            {
+                MessageBox.Show("Введите корректную цену!");
+                return;
+            }
+
+            using (var context = new ShoeStoreContext())
+            {
+                if (isEdit)
+                {
+                    var product = context.Products.FirstOrDefault(p => p.Id == productId);
+                    if (product != null)
+                    {
+                        product.Name = txtName.Text;
+                        product.Price = price;
+                        product.Quantity = (int)numQuantity.Value;
+                        product.Discount = numDiscount.Value;
+                        product.Supplier = txtSupplier.Text;
+                        product.Description = txtDescription.Text;
+                    }
+                }
+                else
+                {
+                    var product = new Product()
+                    {
+                        Name = txtName.Text,
+                        Price = price,
+                        Quantity = (int)numQuantity.Value,
+                        Discount = numDiscount.Value,
+                        Supplier = txtSupplier.Text,
+                        Description = txtDescription.Text
+                    };
+                    context.Products.Add(product);
+                }
+                context.SaveChanges();
+            }
+            DialogResult = DialogResult.OK;
+            this.Close();
+        }
+    }
