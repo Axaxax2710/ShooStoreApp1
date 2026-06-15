@@ -6,7 +6,7 @@ using System.Windows.Forms;
 
 namespace ShoeStoreApp
 {
-    static class DB
+    class DB
     {
         public static string ConnectionString = @"Server=(localdb)\MSSQLLocalDB;Database=ShoeStoreDB;Trusted_Connection=True;";
 
@@ -23,7 +23,7 @@ namespace ShoeStoreApp
         }
     }
 
-    static class User
+    class User
     {
         public static string Role { get; set; }
         public static string Name { get; set; }
