@@ -1,0 +1,157 @@
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const sqlite3 = require('sqlite3').verbose();
+
+const PORT = process.env.PORT || 3000;
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const DB_PATH = path.join(__dirname, 'database.sqlite');
+
+// --- Инициализация базы данных ---
+const db = new sqlite3.Database(DB_PATH);
+
+db.serialize(() => {
+    // Таблица пользователей
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password_hash TEXT,
+        created_at TEXT
+    )`);
+
+    // Таблица настроек
+    db.run(`CREATE TABLE IF NOT EXISTS settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE,
+        value TEXT
+    )`);
+
+    // Таблица новостей/статей
+    db.run(`CREATE TABLE IF NOT EXISTS posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT,
+        title TEXT,
+        slug TEXT UNIQUE,
+        excerpt TEXT,
+        content TEXT,
+        cover_tag TEXT,
+        featured INTEGER DEFAULT 0,
+        published_at TEXT,
+        created_at TEXT
+    )`);
+
+    // Таблица обратной связи
+    db.run(`CREATE TABLE IF NOT EXISTS feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        phone TEXT,
+        email TEXT,
+        message TEXT,
+        created_at TEXT
+    )`);
+
+    // Добавляем администратора
+    const hash = crypto.createHash('sha256').update('admin123').digest('hex');
+    db.run(`INSERT OR IGNORE INTO users (username, password_hash, created_at) 
+            VALUES ('admin', ?, datetime('now'))`, [hash]);
+});
+
+// --- Вспомогательные функции ---
+function sendJson(res, status, data) {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(data));
+}
+
+function readJson(req) {
+    return new Promise((resolve) => {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try { resolve(JSON.parse(body || '{}')); }
+            catch { resolve({}); }
+        });
+    });
+}
+
+// --- API маршруты ---
+async function handleApi(req, res, pathname) {
+    // GET /api/posts
+    if (pathname === '/api/posts' && req.method === 'GET') {
+        db.all('SELECT * FROM posts ORDER BY datetime(published_at) DESC', (err, rows) => {
+            sendJson(res, 200, rows);
+        });
+        return;
+    }
+
+    // POST /api/posts (создание)
+    if (pathname === '/api/posts' && req.method === 'POST') {
+        const data = await readJson(req);
+        const slug = data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        db.run(`INSERT INTO posts (type, title, slug, excerpt, content, published_at, created_at)
+                VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+            [data.type, data.title, slug, data.excerpt || '', data.content || '']);
+        sendJson(res, 201, { success: true });
+        return;
+    }
+
+    // DELETE /api/posts/:id
+    const deleteMatch = pathname.match(/^\/api\/posts\/(\d+)$/);
+    if (deleteMatch && req.method === 'DELETE') {
+        db.run('DELETE FROM posts WHERE id = ?', [deleteMatch[1]]);
+        sendJson(res, 200, { success: true });
+        return;
+    }
+
+    // POST /api/feedback
+    if (pathname === '/api/feedback' && req.method === 'POST') {
+        const data = await readJson(req);
+        if (data.name && data.message) {
+            db.run(`INSERT INTO feedback (name, phone, email, message, created_at)
+                    VALUES (?, ?, ?, ?, datetime('now'))`,
+                [data.name, data.phone || '', data.email || '', data.message]);
+            sendJson(res, 200, { success: true });
+        } else {
+            sendJson(res, 400, { error: 'Заполните имя и сообщение' });
+        }
+        return;
+    }
+
+    sendJson(res, 404, { error: 'API not found' });
+}
+
+// --- Сервер ---
+const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const pathname = url.pathname;
+
+    // API
+    if (pathname.startsWith('/api/')) {
+        await handleApi(req, res, pathname);
+        return;
+    }
+
+    // Статика
+    let filePath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname);
+    
+    fs.readFile(filePath, (err, content) => {
+        if (err) {
+            res.writeHead(404);
+            res.end('404 Not Found');
+            return;
+        }
+        const ext = path.extname(filePath);
+        const contentType = {
+            '.html': 'text/html; charset=utf-8',
+            '.css': 'text/css',
+            '.js': 'application/javascript',
+            '.json': 'application/json'
+        }[ext] || 'text/plain';
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(content);
+    });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Сервер запущен на http://localhost:${PORT}`);
+});
