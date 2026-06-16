@@ -21,6 +21,16 @@ namespace ShoeStoreApp
             }
             return dt;
         }
+
+        public static void Execute(string sql)
+        {
+            using (SqlConnection conn = new SqlConnection(ConnectionString))
+            {
+                conn.Open();
+                SqlCommand cmd = new SqlCommand(sql, conn);
+                cmd.ExecuteNonQuery();
+            }
+        }
     }
 
     class User
